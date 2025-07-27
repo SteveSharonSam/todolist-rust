@@ -29,3 +29,7 @@ A simple and efficient command-line to-do list application written in Rust. A ve
     * `complete <task_number>`
     * `delete <task_description>`
     * `exit`
+
+## Disclaimer
+
+**Please Note:** This application was created for educational purposes to demonstrate my understanding of the Rust programming language. It is not intended for commercial use and should be considered a learning project.
