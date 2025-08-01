@@ -1,189 +1,146 @@
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write, Result};
 use std::path::Path;
-use std::{process, usize};
 
 const TASKS_FILE: &str = "todo_list.txt";
-fn main() {
-    //let args: Vec<String> = env::args().collect();
-    
-    loop {
 
+enum Command {
+    Add(String),
+    List,
+    Complete(usize),
+    Delete(String),
+    Exit,
+    Unknown(String), 
+}
+
+fn main() -> Result<()> {
+    loop {
         println!("Enter a command (add, list, complete, delete, exit):");
         let mut input = String::new();
-        std::io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read input");
+        io::stdin().read_line(&mut input)?; 
 
-        let args: Vec<String> = input.trim().split_whitespace().take(2).map(String::from).collect();
+        //parsing input
+        let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
+        let command_name = parts.get(0).unwrap_or(&"");
+        let query = parts.get(1).unwrap_or(&"").to_string();
 
-        let task = Task::new(&args).unwrap_or_else(|err| {
-            eprintln!("Problem {err}");
-            process::exit(1);
-        });
+        let command = match *command_name {
+            "add" => Command::Add(query),
+            "list" => Command::List,
+            "complete" => match query.parse::<usize>() {
+                Ok(id) => Command::Complete(id),
+                Err(_) => {
+                    println!("Invalid task ID. Please provide a number.");
+                    continue; 
+                }
+            },
+            "delete" => Command::Delete(query),
+            "exit" => Command::Exit,
+            _ => Command::Unknown(command_name.to_string()),
+        };
 
-        match task.command.as_str() {
-            "add" => {
-                if let Err(e) = task.add() {
-                    eprintln!(" {e}");
-                    process::exit(1);
-                }
-            }
-            "list" => {
-                if let Err(e) = task.list() {
-                    eprintln!("{e}");
-                    process::exit(1);
-                }
-            }
-            "complete" => {
-                if let Err(e) = task.complete() {
-                    eprintln!("{e}");
-                    process::exit(1);
-                }
-            }
-            "delete" => {
-                if let Err(e) = task.delete() {
-                    eprintln!("{e}");
-                    process::exit(1);
-                }
-            }
-            "exit" => {
+        let result = match command {
+            Command::Add(task) => add_task(&task),
+            Command::List => list_tasks(),
+            Command::Complete(id) => complete_task(id),
+            Command::Delete(task_query) => delete_task(&task_query),
+            Command::Exit => {
                 println!("Exiting");
-                break;
-            
+                break; // Exit the loop
             }
-            _ => println!("Unknown command. Use add, list, complete, delete, exit."),
-        } 
-    }
-}
-
-struct Task {
-    command: String,
-    query: String,
-}
-
-impl Task {
-    fn new(args: &[String]) -> Result<Task, &'static str> {
-        if args.len() < 1 {
-            return Err("not enough arguments. Usage: <command> <query>");
-        }
-
-        let command = args[0].clone();
-
-        let query = if args.len() > 1 {
-            args[1].clone()
-        } else {
-            String::new()
-        };
-
-        Ok(Task { command, query })
-    }
-//adding a task with [ ]
-    fn add(&self) -> io::Result<()> {
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .append(true)
-            .open(TASKS_FILE)?;
-        let mut writer = io::BufWriter::new(file);
-        writeln!(writer, "[ ] {}", self.query)?;
-        println!("Adding task {}", self.query);
-        self.list()?;
-        Ok(())
-    }
-
-//listing a task
-    fn list(&self) -> io::Result<()> {
-        let file = OpenOptions::new().read(true).open(TASKS_FILE)?;
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            println!("{}", line.unwrap());
-        }
-        println!("Listing");
-        Ok(())
-    }
-
-// marking a task complete [x]
-    fn complete(&self) -> io::Result<()> {
-
-        if !Path::new(TASKS_FILE).exists() {
-            println!("No tasks found. Add some tasks!!");
-            return Ok(());
-        }
-
-        let task_id: usize = match self.query.parse() {
-            Ok(id) => id,
-            Err(_) => {
-                println!("Invalid task ID. Provide a number");
-                return Ok(());
+            Command::Unknown(cmd) => {
+                println!("Unknown command: '{}'. Use add, list, complete, delete, exit.", cmd);
+                Ok(()) // Continue the loop
             }
         };
 
-        let file = File::open(TASKS_FILE)?;
-
-        let reader = BufReader::new(file);
-        let mut tasks: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
-
-        if task_id == 0 || task_id > tasks.len() {
-            println!("Task ID not in range. Enter valid task id!!");
-            return Ok(());
+        if let Err(e) = result {
+            eprintln!("An error occurred: {}", e);
         }
+    }
+    Ok(())
+}
 
-        let task_index = task_id - 1;
-        let task = &tasks[task_index];
 
-        if task.starts_with("[x]") {
-            println!("Task already completed.");
-            return Ok(());
-        }
+fn add_task(query: &str) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(TASKS_FILE)?; 
+    writeln!(file, "[ ] {}", query)?;
+    println!("Adding task: {}", query);
+    list_tasks()?;
+    Ok(())
+}
 
-        if task.starts_with("[ ]") {
-            tasks[task_index] = task.replacen("[ ]", "[x]", 1);
-        } else {
-            tasks[task_index] = format!("[x] {}", task);
-        }
+fn list_tasks() -> io::Result<()> {
+    if !Path::new(TASKS_FILE).exists() {
+        println!("No tasks found. Add some tasks!");
+        return Ok(());
+    }
+    let file = File::open(TASKS_FILE)?;
+    let reader = BufReader::new(file);
+    println!("--- TODO LIST ---");
+    for (index, line) in reader.lines().enumerate() {
+        println!("{}: {}", index + 1, line?);
+    }
+    println!("-----------------");
+    Ok(())
+}
 
-        let mut file = File::create(TASKS_FILE)?;
+fn complete_task(task_id: usize) -> io::Result<()> {
+    let mut tasks = read_tasks_from_file()?;
 
-        for task in &tasks {
-            writeln!(file, "{}", task)?;
-        }
-
-        println!("Task {} completed", tasks[task_index]);
-
-        self.list()?;
-        Ok(())
+    if task_id == 0 || task_id > tasks.len() {
+        println!("Task ID not in range. Please enter a valid task ID.");
+        return Ok(());
     }
 
-//deletes task based on number
-    fn delete(&self) -> io::Result<()> {
-        let file = File::open(TASKS_FILE)?;
-        let reader = BufReader::new(file);
-        let mut tasks: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
-
-        let mut task_index = None;
-
-        for (i, task) in tasks.iter().enumerate() {
-            if task.contains(&self.query) {
-                task_index = Some(i);
-                break;
-            }
-        }
-
-        if let Some(index) = task_index {
-            let removed_task = tasks.remove(index);
-            println!("The task {removed_task} removed");
-        } else {
-            println!("No task containing {} was found", self.query);
-        }
-        let mut file = File::create(TASKS_FILE)?;
-
-        for task in &tasks {
-            writeln!(file, "{}", task)?;
-        }
-
-        println!("Deleting");
-        self.list()?;
-        Ok(())
+    let task_index = task_id - 1;
+    if tasks[task_index].starts_with("[x]") {
+        println!("Task already completed.");
+    } else {
+        tasks[task_index] = tasks[task_index].replacen("[ ]", "[x]", 1);
+        println!("Task {} completed.", task_id);
     }
+
+    write_tasks_to_file(&tasks)?;
+    list_tasks()?;
+    Ok(())
+}
+
+fn delete_task(query: &str) -> io::Result<()> {
+    let mut tasks = read_tasks_from_file()?;
+    let original_len = tasks.len();
+
+    tasks.retain(|task| !task.contains(query));
+
+    if tasks.len() < original_len {
+        println!("Task containing '{}' was removed.", query);
+        write_tasks_to_file(&tasks)?;
+        list_tasks()?;
+    } else {
+        println!("No task containing '{}' was found.", query);
+    }
+
+    Ok(())
+}
+
+
+fn read_tasks_from_file() -> io::Result<Vec<String>> {
+    if !Path::new(TASKS_FILE).exists() {
+        return Ok(Vec::new()); 
+    }
+    let file = File::open(TASKS_FILE)?;
+    let reader = BufReader::new(file);
+    reader.lines().collect()
+}
+
+fn write_tasks_to_file(tasks: &[String]) -> io::Result<()> {
+    let mut file = File::create(TASKS_FILE)?;
+    for task in tasks {
+        writeln!(file, "{}", task)?;
+    }
+    Ok(())
 }
