@@ -20,11 +20,15 @@ fn main() -> Result<()> {
         io::stdin().read_line(&mut input)?; 
 
         //parsing input
-        let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
-        let command_name = parts.get(0).unwrap_or(&"");
-        let query = parts.get(1).unwrap_or(&"").to_string();
+        //let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
+        let (command_name, query) = match input.trim().split_once(" "){
+            Some((cmd, q)) => (cmd, q.to_string()),
+            None => (input.trim(), String::new()),
+        };
+        //let command_name = parts.get(0).unwrap_or(&"");
+        //let query = parts.get(1).unwrap_or(&"").to_string();
 
-        let command = match *command_name {
+        let command = match command_name {
             "add" => Command::Add(query),
             "list" => Command::List,
             "complete" => match query.parse::<usize>() {
